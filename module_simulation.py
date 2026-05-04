@@ -323,6 +323,9 @@ class SimulationModule(ttk.Frame):
 
         if kind == "order":
             items = event[2]
+            total_amount = 0.0
+            order_items_data = []
+            
             for prod_name, qty in items:
                 if prod_name not in self.products:
                     continue
@@ -338,8 +341,33 @@ class SimulationModule(ttk.Frame):
                 self.recent_orders[prod_name] = (
                     self.recent_orders.get(prod_name, 0) + qty
                 )
+                subtotal = qty * p.current_price
+                total_amount += subtotal
+                order_items_data.append((prod_name, p.id, qty, p.current_price))
                 self._log(f"[{time_str}] 🍽️ {qty}x {prod_name}  "
                           f"→ ₺{p.current_price:.2f}", "order")
+            
+            # Siparişi DB'ye yaz (is_simulated=1)
+            if order_items_data:
+                try:
+                    with database.get_connection() as conn:
+                        cur = conn.execute(
+                            "INSERT INTO orders (waiter_id, table_no, status, "
+                            "total_amount, created_at, is_simulated) "
+                            "VALUES (?, ?, ?, ?, ?, 1)",
+                            (None, None, "served", total_amount, 
+                             self.sim_time.isoformat())
+                        )
+                        order_id = cur.lastrowid
+                        for prod_name, prod_id, qty, price in order_items_data:
+                            conn.execute(
+                                "INSERT INTO order_items "
+                                "(order_id, product_id, quantity, locked_price) "
+                                "VALUES (?, ?, ?, ?)",
+                                (order_id, prod_id, qty, price)
+                            )
+                except Exception as e:
+                    print(f"[sim order DB write error] {e}")
 
         elif kind == "rush_start":
             self._log(f"[{time_str}] 🔥 {event[2].upper()} RUSH BAŞLADI", "rush")
